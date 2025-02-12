@@ -11,6 +11,13 @@ import logging
 from typing import List, Optional
 import time
 import uuid
+from fastapi import BackgroundTasks
+from typing import Dict, Any
+from concurrent.futures import ThreadPoolExecutor
+
+# Global process tracking
+process_store: Dict[str, Any] = {}
+executor = ThreadPoolExecutor(max_workers=3)
 
 # Set up enhanced logging
 logging.basicConfig(
@@ -288,6 +295,42 @@ async def delete_memory(user_id: str, memory_id: str):
     except Exception as e:
         logger.error(f"Error deleting memory: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to delete memory")
+
+@app.post("/process/start")
+async def start_process(background_tasks: BackgroundTasks):
+    process_id = str(uuid.uuid4())
+    process_store[process_id] = {"status": "starting", "progress": 0}
+    
+    def long_running_task(pid: str):
+        try:
+            # Simulate work
+            for i in range(10):
+                process_store[pid]["progress"] = i * 10
+                time.sleep(1)
+            process_store[pid]["status"] = "completed"
+        except Exception as e:
+            process_store[pid]["status"] = "failed"
+            process_store[pid]["error"] = str(e)
+    
+    background_tasks.add_task(long_running_task, process_id)
+    return {"process_id": process_id, "status": "started"}
+
+@app.get("/process/{process_id}")
+async def get_process_status(process_id: str):
+    if process_id not in process_store:
+        raise HTTPException(status_code=404, detail="Process not found")
+    return process_store[process_id]
+
+@app.delete("/process/{process_id}")
+async def cancel_process(process_id: str):
+    if process_id not in process_store:
+        raise HTTPException(status_code=404, detail="Process not found")
+    process_store[process_id]["status"] = "cancelled"
+    return {"message": "Process cancelled"}
+
+@app.get("/process/list")
+async def list_processes():
+    return {"processes": process_store}
 
 @app.get("/health")
 async def health_check():
