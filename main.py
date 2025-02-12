@@ -2,7 +2,13 @@
 import os
 import boto3
 import json
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
+import markitdown
+import tempfile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -27,6 +33,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Enhanced NOAH API", version="2.0")
+
+# Create uploads directory
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+# Serve static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+@app.post("/convert")
+async def convert_file(file: UploadFile = File(...)):
+    try:
+        # Save uploaded file
+        temp_dir = tempfile.mkdtemp()
+        temp_path = Path(temp_dir) / file.filename
+        
+        with temp_path.open("wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # Convert to markdown
+        converter = markitdown.MarkItDown()
+        markdown_content = converter.convert_to_markdown(str(temp_path))
+        
+        return JSONResponse({
+            "status": "success",
+            "markdown": markdown_content
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Add CORS middleware
 app.add_middleware(
@@ -81,12 +117,8 @@ async def add_process_time_header(request: Request, call_next):
     return response
 
 @app.get("/")
-def root():
-    return {
-        "message": "NOAH is alive!",
-        "version": "2.0",
-        "status": "operational"
-    }
+async def root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 async def analyze_sentiment(text: str) -> str:
     """Analyze text sentiment using OpenAI."""
