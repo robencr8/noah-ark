@@ -10,6 +10,16 @@ import markitdown
 import tempfile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 from datetime import datetime
 import openai
 import logging
@@ -633,16 +643,6 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(status_code=503, detail="Service unhealthy")
-
-app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 @app.post("/convert")
 async def convert_file(file: UploadFile = File(...)):
