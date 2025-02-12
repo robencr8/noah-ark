@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Global process tracking
 process_store: Dict[str, Any] = {}
-executor = ThreadPoolExecutor(max_workers=3)
+executor = ThreadPoolExecutor(max_workers=None)  # Use all available CPU cores
 
 async def cleanup_old_memories():
     while True:
@@ -53,7 +53,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Enhanced NOAH API", version="2.0")
+app = FastAPI(
+    title="Enhanced NOAH API",
+    version="2.0",
+    default_response_class=JSONResponse,
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+# Configure for maximum performance
+app.middleware("http")(CORSMiddleware(
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    max_age=3600
+))
 
 # Create uploads directory
 UPLOAD_DIR = Path("uploads")
