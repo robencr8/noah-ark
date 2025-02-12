@@ -25,6 +25,27 @@ from concurrent.futures import ThreadPoolExecutor
 process_store: Dict[str, Any] = {}
 executor = ThreadPoolExecutor(max_workers=3)
 
+async def cleanup_old_memories():
+    while True:
+        try:
+            logger.info("Running memory cleanup")
+            # Clear response cache older than 1 hour
+            current_time = time.time()
+            for key in list(response_cache.keys()):
+                if current_time - response_cache[key].get('timestamp', 0) > 3600:
+                    del response_cache[key]
+            # Clear completed processes
+            for pid in list(process_store.keys()):
+                if process_store[pid]['status'] in ['completed', 'failed', 'cancelled']:
+                    del process_store[pid]
+        except Exception as e:
+            logger.error(f"Cleanup error: {str(e)}")
+        await asyncio.sleep(3600)  # Run every hour
+
+@app.on_event("startup")
+async def start_cleanup():
+    asyncio.create_task(cleanup_old_memories())
+
 # Set up enhanced logging
 logging.basicConfig(
     level=logging.INFO,
@@ -98,23 +119,49 @@ for var_name, var_value in required_env_vars.items():
     if not var_value:
         raise ValueError(f"{var_name} environment variable is not set")
 
-# Initialize clients
+# Initialize clients with retry configuration
+config = boto3.Config(
+    retries=dict(
+        max_attempts=3,
+        mode='adaptive'
+    )
+)
+
 openai.api_key = required_env_vars["OPENAI_API_KEY"]
 s3_client = boto3.client(
     's3',
     aws_access_key_id=required_env_vars["AWS_ACCESS_KEY_ID"],
-    aws_secret_access_key=required_env_vars["AWS_SECRET_ACCESS_KEY"]
+    aws_secret_access_key=required_env_vars["AWS_SECRET_ACCESS_KEY"],
+    config=config
 )
 bucket_name = required_env_vars["AWS_S3_BUCKET_NAME"]
 
+# Initialize cache
+response_cache = {}
+
 # Request timing middleware
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
+async def recovery_middleware(request: Request, call_next):
+    try:
+        start_time = time.time()
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        response.headers["X-Process-Time"] = str(process_time)
+        return response
+    except Exception as e:
+        logger.error(f"Server error: {str(e)}")
+        # Attempt recovery
+        if isinstance(e, (boto3.exceptions.S3UploadFailedError, boto3.exceptions.ClientError)):
+            try:
+                s3_client.list_buckets()  # Test S3 connection
+            except:
+                global s3_client
+                s3_client = boto3.client('s3', 
+                    aws_access_key_id=required_env_vars["AWS_ACCESS_KEY_ID"],
+                    aws_secret_access_key=required_env_vars["AWS_SECRET_ACCESS_KEY"],
+                    config=config
+                )
+        raise HTTPException(status_code=500, detail="Server recovered, please retry request")
 
 @app.get("/")
 async def root(request: Request):
@@ -237,6 +284,11 @@ async def retrieve_memory(
 @app.post("/chat/")
 async def chat_with_noah(chat_request: ChatRequest):
     try:
+        # Check cache first
+        cache_key = f"{chat_request.user_id}:{chat_request.message}"
+        if cache_key in response_cache:
+            return response_cache[cache_key]
+
         # Retrieve recent memories for context
         memories = await retrieve_memory(
             chat_request.user_id,
