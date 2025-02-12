@@ -23,4 +23,4 @@ author = 39374005
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "uvicorn main:app --host 0.0.0.0 --port 8090 --workers 8 --limit-concurrency 1000 --loop uvloop --http httptools"
+args = "uvicorn main:app --host 0.0.0.0 --port 8090 --reload --workers 4"
