@@ -44,10 +44,6 @@ async def cleanup_old_memories():
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-@app.on_event("startup")
-async def start_cleanup():
-    asyncio.create_task(cleanup_old_memories())
-
 # Set up enhanced logging
 logging.basicConfig(
     level=logging.INFO,
@@ -137,12 +133,17 @@ config = boto3.Config(
 )
 
 openai.api_key = required_env_vars["OPENAI_API_KEY"]
-s3_client = boto3.client(
-    's3',
-    aws_access_key_id=required_env_vars["AWS_ACCESS_KEY_ID"],
-    aws_secret_access_key=required_env_vars["AWS_SECRET_ACCESS_KEY"],
-    config=config
-)
+
+def initialize_s3_client():
+    global s3_client
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=required_env_vars["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=required_env_vars["AWS_SECRET_ACCESS_KEY"],
+        config=config
+    )
+
+initialize_s3_client()
 bucket_name = required_env_vars["AWS_S3_BUCKET_NAME"]
 
 # Initialize in-memory cache
@@ -173,13 +174,13 @@ async def recovery_middleware(request: Request, call_next):
             try:
                 s3_client.list_buckets()  # Test S3 connection
             except:
-                global s3_client
-                s3_client = boto3.client('s3', 
-                    aws_access_key_id=required_env_vars["AWS_ACCESS_KEY_ID"],
-                    aws_secret_access_key=required_env_vars["AWS_SECRET_ACCESS_KEY"],
-                    config=config
-                )
+                initialize_s3_client()
         raise HTTPException(status_code=500, detail="Server recovered, please retry request")
+
+@app.on_event("startup")
+async def start_cleanup():
+    asyncio.create_task(cleanup_old_memories())
+
 
 @app.get("/")
 async def root(request: Request):
