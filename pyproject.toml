@@ -13,6 +13,8 @@ boto3 = "^1.36.18"
 markitdown = "^0.0.1a4"
 uvicorn = "^0.34.0"
 python-multipart = "^0.0.20"
+redis = "^5.2.1"
+websockets = "^14.2"
 
 [tool.poetry.dev-dependencies]
 debugpy = "^1.6.2"

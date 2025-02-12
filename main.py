@@ -151,8 +151,22 @@ s3_client = boto3.client(
 )
 bucket_name = required_env_vars["AWS_S3_BUCKET_NAME"]
 
-# Initialize cache
-response_cache = {}
+# Initialize Redis cache
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
+CACHE_TTL = 3600  # 1 hour
+
+def cache_get(key: str) -> Optional[str]:
+    try:
+        value = redis_client.get(key)
+        return value.decode('utf-8') if value else None
+    except:
+        return None
+
+def cache_set(key: str, value: str, ttl: int = CACHE_TTL):
+    try:
+        redis_client.setex(key, ttl, value)
+    except:
+        pass
 
 # Request timing middleware
 @app.middleware("http")
@@ -181,6 +195,27 @@ async def recovery_middleware(request: Request, call_next):
 @app.get("/")
 async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+async def analyze_batch(texts: List[str], analysis_type: str) -> List[str]:
+    """Parallel analysis of multiple texts."""
+    try:
+        tasks = []
+        for text in texts:
+            messages = [{
+                "role": "system",
+                "content": f"Analyze the {analysis_type} of the following text and respond with only one word: " + 
+                          ("POSITIVE, NEGATIVE, or NEUTRAL" if analysis_type == "sentiment" else "PERSONAL, WORK, EDUCATION, HEALTH, OTHER")
+            }, {
+                "role": "user",
+                "content": text
+            }]
+            tasks.append(openai.ChatCompletion.acreate(model="gpt-4", messages=messages))
+        
+        responses = await asyncio.gather(*tasks)
+        return [response.choices[0].message.content.strip() for response in responses]
+    except Exception as e:
+        logger.error(f"Batch analysis failed: {str(e)}")
+        return ["NEUTRAL" if analysis_type == "sentiment" else "OTHER"] * len(texts)
 
 async def analyze_sentiment(text: str) -> str:
     """Analyze text sentiment using OpenAI."""
@@ -295,6 +330,46 @@ async def retrieve_memory(
     except Exception as e:
         logger.error(f"Error retrieving memories: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to retrieve memories")
+
+@app.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            chat_request = ChatRequest(**data)
+            
+            # Process in real-time
+            cache_key = f"chat:{chat_request.user_id}:{chat_request.message}"
+            cached_response = cache_get(cache_key)
+            
+            if cached_response:
+                await websocket.send_json({"type": "response", "data": json.loads(cached_response)})
+                continue
+                
+            # Get memories and process response
+            memories = await retrieve_memory(chat_request.user_id, limit=chat_request.context_window)
+            context = "\n".join([f"Previous memory: {m['text']}" for m in memories.get("memories", [])])
+            
+            messages = [{
+                "role": "system",
+                "content": f"You are NOAH, a helpful AI assistant. Context:\n{context}"
+            }, {
+                "role": "user",
+                "content": chat_request.message
+            }]
+            
+            response = await openai.ChatCompletion.acreate(model="gpt-4", messages=messages)
+            result = {
+                "response": response.choices[0].message.content,
+                "context_used": bool(context)
+            }
+            
+            cache_set(cache_key, json.dumps(result))
+            await websocket.send_json({"type": "response", "data": result})
+            
+    except WebSocketDisconnect:
+        pass
 
 @app.post("/chat/")
 async def chat_with_noah(chat_request: ChatRequest):
