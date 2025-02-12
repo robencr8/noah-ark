@@ -156,22 +156,17 @@ s3_client = boto3.client(
 )
 bucket_name = required_env_vars["AWS_S3_BUCKET_NAME"]
 
-# Initialize Redis cache
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+# Initialize in-memory cache
+response_cache = {}
 CACHE_TTL = 3600  # 1 hour
 
 def cache_get(key: str) -> Optional[str]:
-    try:
-        value = redis_client.get(key)
-        return value.decode('utf-8') if value else None
-    except:
-        return None
+    if key in response_cache:
+        return response_cache[key]
+    return None
 
 def cache_set(key: str, value: str, ttl: int = CACHE_TTL):
-    try:
-        redis_client.setex(key, ttl, value)
-    except:
-        pass
+    response_cache[key] = value
 
 # Request timing middleware
 @app.middleware("http")
