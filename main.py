@@ -1,4 +1,3 @@
-
 import os
 import boto3
 import json
@@ -20,6 +19,7 @@ import uuid
 from fastapi import BackgroundTasks
 from typing import Dict, Any
 from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 # Global process tracking
 process_store: Dict[str, Any] = {}
@@ -78,15 +78,15 @@ async def convert_file(file: UploadFile = File(...)):
         # Save uploaded file
         temp_dir = tempfile.mkdtemp()
         temp_path = Path(temp_dir) / file.filename
-        
+
         with temp_path.open("wb") as buffer:
             content = await file.read()
             buffer.write(content)
-        
+
         # Convert to markdown
         converter = markitdown.MarkItDown()
         markdown_content = converter.convert_to_markdown(str(temp_path))
-        
+
         return JSONResponse({
             "status": "success",
             "markdown": markdown_content
@@ -199,7 +199,7 @@ async def analyze_batch(texts: List[str], analysis_type: str) -> List[str]:
                 "content": text
             }]
             tasks.append(openai.ChatCompletion.acreate(model="gpt-4", messages=messages))
-        
+
         responses = await asyncio.gather(*tasks)
         return [response.choices[0].message.content.strip() for response in responses]
     except Exception as e:
@@ -250,13 +250,13 @@ async def store_memories_batch(memories: List[Memory]):
         for memory in memories:
             tasks.append(analyze_sentiment(memory.text))
             tasks.append(categorize_text(memory.text))
-        
+
         analysis_results = await asyncio.gather(*tasks)
-        
+
         for i, memory in enumerate(memories):
             memory_id = str(uuid.uuid4())
             timestamp = datetime.utcnow().isoformat()
-            
+
             memory_data = {
                 "id": memory_id,
                 "text": memory.text,
@@ -266,23 +266,23 @@ async def store_memories_batch(memories: List[Memory]):
                 "category": analysis_results[i*2+1]
             }
             results.append(memory_data)
-            
+
         file_key = f"memories/{memories[0].user_id}.json"
         try:
             response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
             existing_data = json.loads(response['Body'].read().decode('utf-8'))
         except s3_client.exceptions.NoSuchKey:
             existing_data = []
-            
+
         existing_data.extend(results)
-        
+
         s3_client.put_object(
             Bucket=bucket_name,
             Key=file_key,
             Body=json.dumps(existing_data),
             ContentType='application/json'
         )
-        
+
         return {
             "message": f"{len(results)} memories saved",
             "memories": results
@@ -297,11 +297,11 @@ async def store_memory(memory: Memory):
         memory_id = str(uuid.uuid4())
         timestamp = datetime.utcnow().isoformat()
         file_key = f"memories/{memory.user_id}.json"
-        
+
         # Enhance memory with AI analysis
         sentiment = await analyze_sentiment(memory.text)
         category = await categorize_text(memory.text)
-        
+
         memory_data = {
             "id": memory_id,
             "text": memory.text,
@@ -310,15 +310,15 @@ async def store_memory(memory: Memory):
             "sentiment": sentiment,
             "category": category
         }
-        
+
         try:
             response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
             existing_data = json.loads(response['Body'].read().decode('utf-8'))
         except s3_client.exceptions.NoSuchKey:
             existing_data = []
-        
+
         existing_data.append(memory_data)
-        
+
         s3_client.put_object(
             Bucket=bucket_name,
             Key=file_key,
@@ -345,13 +345,13 @@ async def search_memories(user_id: str, query: str):
         memories = (await retrieve_memory(user_id)).get("memories", [])
         if not memories:
             return {"memories": []}
-            
+
         # Use AI to find relevant memories
         messages = [{
             "role": "system",
             "content": "Score each memory's relevance to the query from 0-1. Return only the score as a float."
         }]
-        
+
         scored_memories = []
         for memory in memories:
             messages.append({
@@ -367,7 +367,7 @@ async def search_memories(user_id: str, query: str):
                 scored_memories.append((score, memory))
             except:
                 continue
-                
+
         # Sort by relevance and return top results
         scored_memories.sort(reverse=True, key=lambda x: x[0])
         return {
@@ -389,17 +389,17 @@ async def retrieve_memory(
         try:
             response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
             memories = json.loads(response['Body'].read().decode('utf-8'))
-            
+
             # Apply filters
             if category:
                 memories = [m for m in memories if m.get("category") == category]
             if sentiment:
                 memories = [m for m in memories if m.get("sentiment") == sentiment]
-            
+
             # Apply limit
             if limit:
                 memories = memories[-limit:]
-                
+
             return {"memories": memories}
         except s3_client.exceptions.NoSuchKey:
             return {"memories": []}
@@ -430,19 +430,19 @@ async def websocket_chat(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             chat_request = ChatRequest(**data)
-            
+
             # Process in real-time
             cache_key = f"chat:{chat_request.user_id}:{chat_request.message}"
             cached_response = cache_get(cache_key)
-            
+
             if cached_response:
                 await websocket.send_json({"type": "response", "data": json.loads(cached_response)})
                 continue
-                
+
             # Get memories and process response
             memories = await retrieve_memory(chat_request.user_id, limit=chat_request.context_window)
             context = "\n".join([f"Previous memory: {m['text']}" for m in memories.get("memories", [])])
-            
+
             messages = [{
                 "role": "system",
                 "content": f"You are NOAH ARK, a helpful AI assistant. Context:\n{context}"
@@ -450,16 +450,16 @@ async def websocket_chat(websocket: WebSocket):
                 "role": "user",
                 "content": chat_request.message
             }]
-            
+
             response = await openai.ChatCompletion.acreate(model="gpt-4", messages=messages)
             result = {
                 "response": response.choices[0].message.content,
                 "context_used": bool(context)
             }
-            
+
             cache_set(cache_key, json.dumps(result))
             await websocket.send_json({"type": "response", "data": result})
-            
+
     except WebSocketDisconnect:
         pass
 
@@ -476,13 +476,13 @@ async def chat_with_noah(chat_request: ChatRequest):
             chat_request.user_id,
             limit=chat_request.context_window
         )
-        
+
         # Build context from memories
         context = "\n".join([
             f"Previous memory: {m['text']}"
             for m in memories.get("memories", [])
         ])
-        
+
         messages = [
             {
                 "role": "system",
@@ -493,12 +493,12 @@ async def chat_with_noah(chat_request: ChatRequest):
                 "content": chat_request.message
             }
         ]
-        
+
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=messages
         )
-        
+
         return {
             "response": response.choices[0].message.content,
             "context_used": bool(context)
@@ -511,7 +511,7 @@ async def chat_with_noah(chat_request: ChatRequest):
 async def get_business_insights(user_id: str):
     try:
         memories = (await retrieve_memory(user_id)).get("memories", [])
-        
+
         # Analyze business patterns
         business_data = "\n".join([m["text"] for m in memories])
         analysis = await openai.ChatCompletion.acreate(
@@ -524,7 +524,7 @@ async def get_business_insights(user_id: str):
                 "content": business_data
             }]
         )
-        
+
         return {
             "insights": analysis.choices[0].message.content,
             "trend_analysis": True,
@@ -539,19 +539,19 @@ async def get_analytics(user_id: str):
     """Get analytics about user's memories."""
     try:
         memories = (await retrieve_memory(user_id)).get("memories", [])
-        
+
         # Calculate analytics
         total_memories = len(memories)
         sentiment_distribution = {}
         category_distribution = {}
-        
+
         for memory in memories:
             sentiment = memory.get("sentiment", "UNKNOWN")
             category = memory.get("category", "UNKNOWN")
-            
+
             sentiment_distribution[sentiment] = sentiment_distribution.get(sentiment, 0) + 1
             category_distribution[category] = category_distribution.get(category, 0) + 1
-        
+
         return {
             "total_memories": total_memories,
             "sentiment_distribution": sentiment_distribution,
@@ -569,19 +569,19 @@ async def delete_memory(user_id: str, memory_id: str):
         try:
             response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
             memories = json.loads(response['Body'].read().decode('utf-8'))
-            
+
             # Filter out the memory to delete
             updated_memories = [m for m in memories if m.get("id") != memory_id]
-            
+
             if len(updated_memories) == len(memories):
                 raise HTTPException(status_code=404, detail="Memory not found")
-            
+
             s3_client.put_object(
                 Bucket=bucket_name,
                 Key=file_key,
                 Body=json.dumps(updated_memories)
             )
-            
+
             return {"message": "Memory deleted successfully"}
         except s3_client.exceptions.NoSuchKey:
             raise HTTPException(status_code=404, detail="User not found")
@@ -593,7 +593,7 @@ async def delete_memory(user_id: str, memory_id: str):
 async def start_process(background_tasks: BackgroundTasks):
     process_id = str(uuid.uuid4())
     process_store[process_id] = {"status": "starting", "progress": 0}
-    
+
     def long_running_task(pid: str):
         try:
             # Simulate work
@@ -604,7 +604,7 @@ async def start_process(background_tasks: BackgroundTasks):
         except Exception as e:
             process_store[pid]["status"] = "failed"
             process_store[pid]["error"] = str(e)
-    
+
     background_tasks.add_task(long_running_task, process_id)
     return {"process_id": process_id, "status": "started"}
 
@@ -632,7 +632,7 @@ async def transcribe_voice(audio_file: UploadFile = File(...)):
         with open(temp_file, "wb") as buffer:
             content = await audio_file.read()
             buffer.write(content)
-        
+
         transcript = await openai.Audio.atranscribe("whisper-1", open(temp_file, "rb"))
         os.remove(temp_file)
         return {"text": transcript.text}
@@ -660,7 +660,7 @@ async def health_check():
         s3_client.list_buckets()
         # Test OpenAI connection
         openai.Model.list()
-        
+
         return {
             "status": "healthy",
             "timestamp": datetime.utcnow().isoformat(),
@@ -672,3 +672,5 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(status_code=503, detail="Service unhealthy")
+
+app = FastAPI()
