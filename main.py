@@ -61,6 +61,11 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# Ensure the app is accessible externally
+import uvicorn
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8080)
+
 # Configure for maximum performance
 app.middleware("http")(CORSMiddleware(
     allow_origins=["*"],
