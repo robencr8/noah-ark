@@ -253,6 +253,55 @@ async def categorize_text(text: str) -> str:
         logger.error(f"Categorization failed: {str(e)}")
         return "OTHER"
 
+@app.post("/store_memories/batch")
+async def store_memories_batch(memories: List[Memory]):
+    try:
+        results = []
+        tasks = []
+        for memory in memories:
+            tasks.append(analyze_sentiment(memory.text))
+            tasks.append(categorize_text(memory.text))
+        
+        analysis_results = await asyncio.gather(*tasks)
+        
+        for i, memory in enumerate(memories):
+            memory_id = str(uuid.uuid4())
+            timestamp = datetime.utcnow().isoformat()
+            
+            memory_data = {
+                "id": memory_id,
+                "text": memory.text,
+                "timestamp": timestamp,
+                "tags": memory.tags,
+                "sentiment": analysis_results[i*2],
+                "category": analysis_results[i*2+1]
+            }
+            results.append(memory_data)
+            
+        file_key = f"memories/{memories[0].user_id}.json"
+        try:
+            response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+            existing_data = json.loads(response['Body'].read().decode('utf-8'))
+        except s3_client.exceptions.NoSuchKey:
+            existing_data = []
+            
+        existing_data.extend(results)
+        
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=file_key,
+            Body=json.dumps(existing_data),
+            ContentType='application/json'
+        )
+        
+        return {
+            "message": f"{len(results)} memories saved",
+            "memories": results
+        }
+    except Exception as e:
+        logger.error(f"Error storing memories batch: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to store memories batch")
+
 @app.post("/store_memory/")
 async def store_memory(memory: Memory):
     try:
@@ -300,6 +349,44 @@ async def store_memory(memory: Memory):
     except Exception as e:
         logger.error(f"Error storing memory: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to store memory")
+
+@app.post("/search_memories/{user_id}")
+async def search_memories(user_id: str, query: str):
+    try:
+        memories = (await retrieve_memory(user_id)).get("memories", [])
+        if not memories:
+            return {"memories": []}
+            
+        # Use AI to find relevant memories
+        messages = [{
+            "role": "system",
+            "content": "Score each memory's relevance to the query from 0-1. Return only the score as a float."
+        }]
+        
+        scored_memories = []
+        for memory in memories:
+            messages.append({
+                "role": "user",
+                "content": f"Query: {query}\nMemory: {memory['text']}"
+            })
+            response = await openai.ChatCompletion.acreate(
+                model="gpt-4",
+                messages=messages
+            )
+            try:
+                score = float(response.choices[0].message.content.strip())
+                scored_memories.append((score, memory))
+            except:
+                continue
+                
+        # Sort by relevance and return top results
+        scored_memories.sort(reverse=True, key=lambda x: x[0])
+        return {
+            "memories": [m[1] for m in scored_memories if m[0] > 0.5]
+        }
+    except Exception as e:
+        logger.error(f"Error searching memories: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to search memories")
 
 @app.get("/retrieve_memory/{user_id}")
 async def retrieve_memory(
