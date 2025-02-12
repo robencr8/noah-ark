@@ -51,53 +51,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configure for maximum performance
-app.middleware("http")(CORSMiddleware(
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    max_age=3600
-))
-
 # Create uploads directory
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 # Serve static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+#app.mount("/static", StaticFiles(directory="static"), name="static") # Moved after app initialization
 templates = Jinja2Templates(directory="templates")
-
-@app.post("/convert")
-async def convert_file(file: UploadFile = File(...)):
-    try:
-        # Save uploaded file
-        temp_dir = tempfile.mkdtemp()
-        temp_path = Path(temp_dir) / file.filename
-
-        with temp_path.open("wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
-
-        # Convert to markdown
-        converter = markitdown.MarkItDown()
-        markdown_content = converter.convert_to_markdown(str(temp_path))
-
-        return JSONResponse({
-            "status": "success",
-            "markdown": markdown_content
-        })
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Enhanced models
 class Memory(BaseModel):
@@ -675,3 +635,33 @@ async def health_check():
         raise HTTPException(status_code=503, detail="Service unhealthy")
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/convert")
+async def convert_file(file: UploadFile = File(...)):
+    try:
+        # Save uploaded file
+        temp_dir = tempfile.mkdtemp()
+        temp_path = Path(temp_dir) / file.filename
+
+        with temp_path.open("wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+
+        # Convert to markdown
+        converter = markitdown.MarkItDown()
+        markdown_content = converter.convert_to_markdown(str(temp_path))
+
+        return JSONResponse({
+            "status": "success",
+            "markdown": markdown_content
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
