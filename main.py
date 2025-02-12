@@ -42,9 +42,9 @@ async def cleanup_old_memories():
             logger.error(f"Cleanup error: {str(e)}")
         await asyncio.sleep(3600)  # Run every hour
 
-@app.on_event("startup")
 from fastapi import WebSocket, WebSocketDisconnect
 
+@app.on_event("startup")
 async def start_cleanup():
     asyncio.create_task(cleanup_old_memories())
 
