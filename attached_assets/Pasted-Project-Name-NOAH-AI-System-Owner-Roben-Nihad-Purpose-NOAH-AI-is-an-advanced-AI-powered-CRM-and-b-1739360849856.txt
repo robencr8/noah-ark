@@ -1,0 +1,49 @@
+Project Name: NOAH AI System
+Owner: Roben Nihad
+Purpose:
+NOAH AI is an advanced AI-powered CRM and business assistant that integrates memory storage, AI chat capabilities, and business networking features. It is designed to help professionals manage contacts, store conversations, recall past interactions, and automate workflows.
+
+Key Functionalities & Features:
+AI Memory Storage (AWS S3)
+
+Users can store and retrieve memories (text-based interactions) using API endpoints.
+Data is securely stored in an AWS S3 bucket (noah-ai-storage).
+AWS credentials are provided through environment variables.
+AI Chatbot (OpenAI Integration)
+
+NOAH can recall stored conversations and respond intelligently using OpenAI’s GPT-4o model.
+Users interact with NOAH via API endpoints.
+AI-generated responses are cached to reduce costs.
+Business Networking & Contact Management (Future Implementation)
+
+Search and integrate UAE contact calendars.
+Connect with professionals via LinkedIn API.
+Serve as a secure communication tool for business interactions.
+Current Setup & Dependencies:
+Backend Framework: FastAPI (running on port 8090)
+Storage: AWS S3 (Read & Write access enabled)
+AI Processing: OpenAI API (Environment variable configured)
+Server Hosting: Replit (Authorized access granted)
+Tasks for Replit AI Assistant:
+✅ Ensure API Endpoints Work Properly
+
+Fix issues with storing and retrieving memory (/store_memory, /retrieve_memory).
+Debug AWS S3 interactions and permissions.
+✅ Optimize AI Integration
+
+Verify OpenAI API responses are processed correctly.
+Implement caching to reduce API calls and optimize costs.
+✅ Automate Fixes & Server Management
+
+Auto-restart the server if it crashes.
+Log and debug errors automatically.
+Apply fixes without manual intervention.
+✅ Prepare for Future Features
+
+Ensure the system is modular for LinkedIn and UAE contact integration.
+Keep memory recall and AI interactions efficient.
+Final Instructions:
+All fixes and optimizations should be executed automatically.
+No manual approval required for minor debugging or server restarts.
+Log all errors and resolve them proactively.
+NOAH AI must be fully operational, storing & recalling data, and responding accurately. 🚀
