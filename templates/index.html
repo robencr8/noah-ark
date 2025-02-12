@@ -111,7 +111,7 @@
     </div>
 
     <script>
-        const ws = new WebSocket(`ws://${window.location.hostname}:8090/ws/chat`);
+        const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8090/ws/chat`);
         const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
 
