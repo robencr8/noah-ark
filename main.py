@@ -456,7 +456,7 @@ async def websocket_chat(websocket: WebSocket):
             
             messages = [{
                 "role": "system",
-                "content": f"You are NOAH, a helpful AI assistant. Context:\n{context}"
+                "content": f"You are NOAH ARK, a helpful AI assistant. Context:\n{context}"
             }, {
                 "role": "user",
                 "content": chat_request.message
@@ -497,7 +497,7 @@ async def chat_with_noah(chat_request: ChatRequest):
         messages = [
             {
                 "role": "system",
-                "content": f"You are NOAH, a helpful AI assistant. Here is some context about our previous interactions:\n{context}"
+                "content": f"You are NOAH ARK, a helpful AI assistant. Here is some context about our previous interactions:\n{context}"
             },
             {
                 "role": "user",
