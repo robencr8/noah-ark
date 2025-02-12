@@ -95,7 +95,7 @@ for var_name, var_value in required_env_vars.items():
         raise ValueError(f"{var_name} environment variable is not set")
 
 # Initialize clients with retry configuration
-config = boto3.Config(
+config = boto3.session.Config(
     retries=dict(
         max_attempts=3,
         mode='adaptive'
