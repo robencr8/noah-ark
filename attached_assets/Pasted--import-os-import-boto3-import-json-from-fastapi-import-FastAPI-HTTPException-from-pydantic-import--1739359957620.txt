@@ -1,0 +1,119 @@
+
+import os
+import boto3
+import json
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from datetime import datetime
+import openai
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"message": "NOAH is alive!"}
+
+# Configure API keys and clients
+if not os.getenv("OPENAI_API_KEY"):
+    raise ValueError("OPENAI_API_KEY environment variable is not set")
+
+if not (os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY") and os.getenv("AWS_S3_BUCKET_NAME")):
+    raise ValueError("AWS credentials or bucket name not set")
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
+)
+bucket_name = os.getenv("AWS_S3_BUCKET_NAME")
+
+class Memory(BaseModel):
+    user_id: str
+    text: str
+
+# Store user memory in S3
+@app.post("/store_memory/")
+async def store_memory(memory: Memory):
+    try:
+        timestamp = datetime.utcnow().isoformat()
+        file_key = f"memories/{memory.user_id}.json"
+        
+        logger.info(f"Attempting to store memory for user {memory.user_id}")
+        logger.info(f"Using bucket: {bucket_name}")
+        
+        # Check if user already has memories stored
+        try:
+            response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+            existing_data = json.loads(response['Body'].read().decode('utf-8'))
+            logger.info("Successfully retrieved existing memories")
+        except s3_client.exceptions.NoSuchKey:
+            logger.info("No existing memories found, creating new array")
+            existing_data = []
+        except Exception as e:
+            logger.error(f"S3 get_object error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"S3 access error: {str(e)}")
+
+        # Append new memory
+        existing_data.append({"text": memory.text, "timestamp": timestamp})
+
+        # Upload updated memory file
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=file_key,
+            Body=json.dumps(existing_data)
+        )
+
+        return {"message": "Memory saved", "timestamp": timestamp}
+    except Exception as e:
+        logger.error(f"Error storing memory: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to store memory")
+
+# Retrieve user memory from S3
+@app.get("/retrieve_memory/{user_id}")
+async def retrieve_memory(user_id: str):
+    try:
+        file_key = f"memories/{user_id}.json"
+        try:
+            response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+            user_memories = json.loads(response['Body'].read().decode('utf-8'))
+            return {"memories": user_memories}
+        except s3_client.exceptions.NoSuchKey:
+            return {"memories": []}
+    except Exception as e:
+        logger.error(f"Error retrieving memories: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve memories")
+
+# AI Chat Response (NOAH)
+@app.post("/chat/")
+async def chat_with_noah(memory: Memory):
+    try:
+        messages = [{"role": "user", "content": memory.text}]
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=messages
+        )
+        return {"response": response["choices"][0]["message"]["content"]}
+    except Exception as e:
+        logger.error(f"Error in chat completion: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to generate chat response")
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+# Test S3 connection
+@app.get("/test-s3")
+async def test_s3():
+    try:
+        buckets = s3_client.list_buckets()
+        return {"status": "success", "buckets": [b['Name'] for b in buckets['Buckets']]}
+    except Exception as e:
+        logger.error(f"Error connecting to S3: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to connect to S3")
