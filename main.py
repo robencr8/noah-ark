@@ -46,13 +46,7 @@ async def cleanup_old_memories():
 async def start_cleanup():
     asyncio.create_task(cleanup_old_memories())
 
-# Set up enhanced logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
+# Initialize FastAPI app first
 app = FastAPI(
     title="Enhanced NOAH API",
     version="2.0",
@@ -61,10 +55,21 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# Set up enhanced logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+    default_response_class=JSONResponse,
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
 # Ensure the app is accessible externally
 import uvicorn
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8090, workers=4)
 
 # Configure for maximum performance
 app.middleware("http")(CORSMiddleware(
