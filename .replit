@@ -10,8 +10,9 @@ channel = "stable-23_05"
 language = "python3"
 
 [deployment]
-run = ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8090 --workers 4 --ws websockets"]
+run = ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8090 --workers 4"]
 deploymentTarget = "cloudrun"
+build = ["sh", "-c", "pip install -r requirements.txt"]
 
 [workflows]
 runButton = "Run"
