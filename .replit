@@ -24,3 +24,11 @@ author = 39374005
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "uvicorn main:app --host 0.0.0.0 --port 8080 --reload"
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8090
+externalPort = 80
