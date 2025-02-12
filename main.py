@@ -418,6 +418,22 @@ async def retrieve_memory(
         logger.error(f"Error retrieving memories: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to retrieve memories")
 
+@app.websocket("/ws/collaborate/{room_id}")
+async def collaborate(websocket: WebSocket, room_id: str):
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            # Process real-time updates
+            if data["type"] == "share_memory":
+                memory = Memory(**data["memory"])
+                await store_memory(memory)
+            elif data["type"] == "share_insight":
+                insight = await get_business_insights(data["user_id"])
+                await websocket.send_json({"type": "insight", "data": insight})
+    except WebSocketDisconnect:
+        pass
+
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
     await websocket.accept()
@@ -501,6 +517,33 @@ async def chat_with_noah(chat_request: ChatRequest):
     except Exception as e:
         logger.error(f"Error in chat completion: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to generate chat response")
+
+@app.get("/business/insights/{user_id}")
+async def get_business_insights(user_id: str):
+    try:
+        memories = (await retrieve_memory(user_id)).get("memories", [])
+        
+        # Analyze business patterns
+        business_data = "\n".join([m["text"] for m in memories])
+        analysis = await openai.ChatCompletion.acreate(
+            model="gpt-4",
+            messages=[{
+                "role": "system",
+                "content": "Analyze the following business interactions and provide key insights:"
+            }, {
+                "role": "user",
+                "content": business_data
+            }]
+        )
+        
+        return {
+            "insights": analysis.choices[0].message.content,
+            "trend_analysis": True,
+            "action_items": True
+        }
+    except Exception as e:
+        logger.error(f"Business insights failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to generate insights")
 
 @app.get("/analytics/{user_id}")
 async def get_analytics(user_id: str):
@@ -592,6 +635,33 @@ async def cancel_process(process_id: str):
 @app.get("/process/list")
 async def list_processes():
     return {"processes": process_store}
+
+@app.post("/voice/transcribe")
+async def transcribe_voice(audio_file: UploadFile = File(...)):
+    try:
+        temp_file = f"uploads/{uuid.uuid4()}.wav"
+        with open(temp_file, "wb") as buffer:
+            content = await audio_file.read()
+            buffer.write(content)
+        
+        transcript = await openai.Audio.atranscribe("whisper-1", open(temp_file, "rb"))
+        os.remove(temp_file)
+        return {"text": transcript.text}
+    except Exception as e:
+        logger.error(f"Voice transcription failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to process voice input")
+
+@app.post("/voice/respond")
+async def voice_response(text: str):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": text}]
+        )
+        return {"response": response.choices[0].message.content}
+    except Exception as e:
+        logger.error(f"Voice response failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to generate voice response")
 
 @app.get("/health")
 async def health_check():
